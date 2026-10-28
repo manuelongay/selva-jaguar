@@ -3,26 +3,29 @@ import * as Cloud from "./cloud.js";
 /* ===================== CONSTANTES ===================== */
 const W = 800, H = 400;
 const GROUND = 300;      // y del suelo (pies del jugador)
-const GRAV = 1500;       // gravedad del salto
-const JUMP_V = -640;     // impulso de salto  (altura ~137 px, alcance ~205 px)
+const GRAV = 1100;       // gravedad del salto (más baja = salto más flotado)
+const JUMP_V = -600;     // impulso de salto
 const SWING_G = 1800;    // "gravedad" del péndulo de la liana
 const HAND = 50;         // distancia de los pies a las manos
 const PX_M = 50;         // píxeles por metro
+const GRAB = 44;         // radio para agarrar una liana (px)
+const RELEASE_VX = 250;  // impulso hacia adelante al soltarse de la liana
+const RELEASE_VY = -420; // impulso hacia arriba al soltarse de la liana
 const EDGE_GRACE = 3;    // segundos que puedes estar pegado al borde izquierdo antes de perder
 
 /* ===================== MAPAS ===================== */
 // Para agregar un mapa nuevo basta con añadir otro objeto aquí.
 const MAPS = [
   { id: "selva", name: "Selva Esmeralda", desc: "Jabalíes y serpientes. Ideal para empezar.",
-    lengthM: 300, speed: 170, seed: 1101, density: 0.55, chain: 0, lake: [240, 290],
+    lengthM: 300, speed: 125, seed: 1101, density: 0.55, chain: 0, lake: [240, 290],
     enemies: { boar: 0.5, snake: 0.5, jaguar: 0 },
     sky: ["#7fd6a0", "#e8f7c8"], far: "#3f8f5a", near: "#2c6e45", ground: "#3a8a2c", dirt: "#5b3a1e", water: "#2aa3c9", vine: "#2f5d1f", leaf: "#2e8b3d", night: false },
   { id: "pantano", name: "Pantano Nocturno", desc: "Entra el jaguar. Lagos más anchos.",
-    lengthM: 400, speed: 190, seed: 2202, density: 0.65, chain: 0.25, lake: [250, 295],
+    lengthM: 400, speed: 135, seed: 2202, density: 0.65, chain: 0.25, lake: [250, 295],
     enemies: { boar: 0.3, snake: 0.3, jaguar: 0.4 },
     sky: ["#0d1f38", "#2c4a5e"], far: "#1c3b4a", near: "#16303a", ground: "#2d6a3f", dirt: "#2a1d12", water: "#1f6f7a", vine: "#6b8a3a", leaf: "#1f5a3a", night: true },
   { id: "canon", name: "Cañón del Atardecer", desc: "Rápido, con jaguares y lagos dobles.",
-    lengthM: 500, speed: 210, seed: 3303, density: 0.75, chain: 0.4, lake: [255, 300],
+    lengthM: 500, speed: 145, seed: 3303, density: 0.75, chain: 0.4, lake: [255, 300],
     enemies: { boar: 0.3, snake: 0.2, jaguar: 0.5 },
     sky: ["#f2924a", "#ffd98a"], far: "#b5563a", near: "#8a3f2c", ground: "#8a7a2e", dirt: "#4a2f18", water: "#3ba0b8", vine: "#6a5a1a", leaf: "#a88a2a", night: false },
 ];
@@ -143,8 +146,8 @@ function update(dt) {
     p.x = v.ax + p.Le * Math.sin(p.th);
     p.y = v.ay + p.Le * Math.cos(p.th) + HAND;
     if (press) {
-      p.vx = p.Le * p.om * Math.cos(p.th) * 1.05;
-      p.vy = -p.Le * p.om * Math.sin(p.th);
+      p.vx = Math.max(0, p.Le * p.om * Math.cos(p.th) * 1.05) + RELEASE_VX;
+      p.vy = -p.Le * p.om * Math.sin(p.th) + RELEASE_VY;
       p.state = "air"; p.vine = null; v.used = true; beep(380, .08);
     }
   }
@@ -187,7 +190,7 @@ function tryGrab(g) {
     const th = idleTheta(v, g.t);
     for (let t = 0.6; t <= 1.001; t += 0.1) {
       const px = v.ax + v.L * t * Math.sin(th), py = v.ay + v.L * t * Math.cos(th);
-      if (Math.hypot(px - hx, py - hy) < 28) {
+      if (Math.hypot(px - hx, py - hy) < GRAB) {
         const ang = Math.atan2(hx - v.ax, hy - v.ay);
         const Le = Math.hypot(hx - v.ax, hy - v.ay);
         p.state = "swing"; p.vine = v; p.Le = Le; p.th = ang;
