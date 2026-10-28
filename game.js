@@ -8,20 +8,21 @@ const JUMP_V = -640;     // impulso de salto  (altura ~137 px, alcance ~205 px)
 const SWING_G = 1800;    // "gravedad" del péndulo de la liana
 const HAND = 50;         // distancia de los pies a las manos
 const PX_M = 50;         // píxeles por metro
+const EDGE_GRACE = 3;    // segundos que puedes estar pegado al borde izquierdo antes de perder
 
 /* ===================== MAPAS ===================== */
 // Para agregar un mapa nuevo basta con añadir otro objeto aquí.
 const MAPS = [
   { id: "selva", name: "Selva Esmeralda", desc: "Jabalíes y serpientes. Ideal para empezar.",
-    lengthM: 300, speed: 240, seed: 1101, density: 0.55, chain: 0, lake: [240, 290],
+    lengthM: 300, speed: 170, seed: 1101, density: 0.55, chain: 0, lake: [240, 290],
     enemies: { boar: 0.5, snake: 0.5, jaguar: 0 },
     sky: ["#7fd6a0", "#e8f7c8"], far: "#3f8f5a", near: "#2c6e45", ground: "#3a8a2c", dirt: "#5b3a1e", water: "#2aa3c9", vine: "#2f5d1f", leaf: "#2e8b3d", night: false },
   { id: "pantano", name: "Pantano Nocturno", desc: "Entra el jaguar. Lagos más anchos.",
-    lengthM: 400, speed: 265, seed: 2202, density: 0.65, chain: 0.25, lake: [250, 295],
+    lengthM: 400, speed: 190, seed: 2202, density: 0.65, chain: 0.25, lake: [250, 295],
     enemies: { boar: 0.3, snake: 0.3, jaguar: 0.4 },
     sky: ["#0d1f38", "#2c4a5e"], far: "#1c3b4a", near: "#16303a", ground: "#2d6a3f", dirt: "#2a1d12", water: "#1f6f7a", vine: "#6b8a3a", leaf: "#1f5a3a", night: true },
   { id: "canon", name: "Cañón del Atardecer", desc: "Rápido, con jaguares y lagos dobles.",
-    lengthM: 500, speed: 290, seed: 3303, density: 0.75, chain: 0.4, lake: [255, 300],
+    lengthM: 500, speed: 210, seed: 3303, density: 0.75, chain: 0.4, lake: [255, 300],
     enemies: { boar: 0.3, snake: 0.2, jaguar: 0.5 },
     sky: ["#f2924a", "#ffd98a"], far: "#b5563a", near: "#8a3f2c", ground: "#8a7a2e", dirt: "#4a2f18", water: "#3ba0b8", vine: "#6a5a1a", leaf: "#a88a2a", night: false },
 ];
@@ -100,7 +101,7 @@ function startGame(mapIdx, m) {
   curMap = mapIdx; mode = m;
   const map = MAPS[mapIdx];
   const lvl = buildLevel(map);
-  G = { map, lvl, t: 0, time: 0, cam: 0, over: false, won: false, cause: "",
+  G = { map, lvl, t: 0, time: 0, cam: 0, edgeT: 0, over: false, won: false, cause: "",
         p: { x: 150, y: GROUND, vx: map.speed, vy: 0, state: "run", vine: null, th: 0, om: 0, Le: 0, anim: 0 } };
   G.cam = G.p.x - 200;
   pressed = false;
@@ -148,8 +149,12 @@ function update(dt) {
     }
   }
 
-  // si la pantalla te deja atrás, pierdes
-  if (p.x < g.cam - 20) return die("Te quedaste atrás ⏱️");
+  // borde izquierdo: 3 segundos de gracia antes de perder
+  if (p.state !== "swing" && p.x < g.cam + 8) p.x = g.cam + 8;
+  if (p.x < g.cam + 40) {
+    g.edgeT += dt;
+    if (g.edgeT >= EDGE_GRACE || p.x < g.cam - 60) return die("Te quedaste atrás ⏱️");
+  } else g.edgeT = 0;
 
   // enemigos
   for (const e of lvl.enemies) {
@@ -320,6 +325,15 @@ function draw() {
     ctx.restore();
   }
   drawPlayer(g.p, cam);
+  // aviso de borde izquierdo
+  if (g.edgeT > 0.05 && !g.over) {
+    const a = 0.25 + 0.35 * (g.edgeT / EDGE_GRACE);
+    const eg = ctx.createLinearGradient(0, 0, 160, 0);
+    eg.addColorStop(0, `rgba(255,40,40,${a})`); eg.addColorStop(1, "rgba(255,40,40,0)");
+    ctx.fillStyle = eg; ctx.fillRect(0, 0, 160, H);
+    ctx.fillStyle = "#fff"; ctx.font = "bold 40px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText(Math.ceil(EDGE_GRACE - g.edgeT), 40, 200);
+  }
 }
 
 function drawJaguar(e) {
