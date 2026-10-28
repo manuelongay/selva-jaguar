@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Selva Jaguar</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+  html,body{margin:0;height:100%;background:#0b1a10;overflow:hidden;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#fff;touch-action:manipulation}
+  #c{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);background:#123;image-rendering:auto}
+  #ui{position:fixed;inset:0;pointer-events:none}
+  .screen{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:auto;background:rgba(8,24,14,.86);padding:10px;overflow:auto}
+  .screen.hidden{display:none}
+  .panel{width:min(440px,100%);background:#163a22;border:2px solid #3f8f5a;border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:9px;max-height:100%;overflow:auto}
+  h1{margin:0;font-size:26px;text-align:center;color:#ffd24a;letter-spacing:1px}
+  h2{margin:0;font-size:19px;text-align:center}
+  p{margin:0;font-size:13px;opacity:.85;text-align:center}
+  input{width:100%;padding:11px;border-radius:8px;border:1px solid #3f8f5a;background:#0d2616;color:#fff;font-size:16px;user-select:text;-webkit-user-select:text}
+  button{padding:12px;border:0;border-radius:10px;background:#3fae5a;color:#06210f;font-size:16px;font-weight:700}
+  button.sec{background:#2a5a3a;color:#fff}
+  button.warn{background:#e0a030;color:#241500}
+  button:disabled{opacity:.4}
+  .row{display:flex;gap:8px}.row>*{flex:1}
+  .msg{min-height:16px;color:#ffb0a0;font-size:13px;text-align:center}
+  .map{display:flex;justify-content:space-between;align-items:center;text-align:left}
+  .map small{display:block;font-weight:400;opacity:.75}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  td,th{padding:5px 4px;border-bottom:1px solid #2f6a44;text-align:left}
+  td:last-child,th:last-child{text-align:right}
+  #hud{position:fixed;left:0;right:0;top:0;display:none;justify-content:space-between;padding:6px 12px;font-weight:700;font-size:15px;text-shadow:0 1px 3px #000;pointer-events:none}
+  #pauseBtn{position:fixed;right:8px;bottom:8px;display:none;pointer-events:auto;padding:6px 12px;font-size:13px;opacity:.7}
+</style>
+</head>
+<body>
+<canvas id="c" width="800" height="400"></canvas>
+<div id="hud"><span id="hMap"></span><span id="hDist"></span><span id="hScore"></span></div>
+<button id="pauseBtn" class="sec">Menú</button>
+
+<div id="ui">
+  <!-- ACCESO -->
+  <div id="s-auth" class="screen">
+    <div class="panel">
+      <h1>🐆 Selva Jaguar</h1>
+      <p>Salta a las lianas, cruza los lagos y esquiva a los animales.</p>
+      <input id="aName" placeholder="Nombre de jugador (solo al registrarte)" autocomplete="nickname">
+      <input id="aEmail" type="email" placeholder="Correo" autocomplete="email">
+      <input id="aPass" type="password" placeholder="Contraseña (mín. 6)" autocomplete="current-password">
+      <div class="row"><button id="bLogin">Entrar</button><button id="bReg" class="warn">Registrarme</button></div>
+      <button id="bGuest" class="sec">Jugar como invitado (sin guardar)</button>
+      <div id="aMsg" class="msg"></div>
+      <p id="aMode"></p>
+    </div>
+  </div>
+
+  <!-- MENÚ -->
+  <div id="s-menu" class="screen hidden">
+    <div class="panel">
+      <h1>🐆 Selva Jaguar</h1>
+      <h2 id="mHello"></h2>
+      <button id="bAdv">🌴 Aventura</button>
+      <button id="bComp" class="warn">🏆 Competencia</button>
+      <button id="bRank" class="sec">📊 Ranking</button>
+      <button id="bOut" class="sec">Salir de la cuenta</button>
+      <p>Toca la pantalla para saltar. Si tocas una liana te agarras; toca otra vez para soltarte.</p>
+    </div>
+  </div>
+
+  <!-- MAPAS -->
+  <div id="s-maps" class="screen hidden">
+    <div class="panel">
+      <h2 id="pTitle">Elige un mapa</h2>
+      <p id="pSub"></p>
+      <div id="mapList" style="display:flex;flex-direction:column;gap:8px"></div>
+      <button id="bMapsBack" class="sec">Volver</button>
+    </div>
+  </div>
+
+  <!-- RANKING -->
+  <div id="s-rank" class="screen hidden">
+    <div class="panel">
+      <h2>Ranking</h2>
+      <div id="rankTabs" class="row"></div>
+      <div id="rankBody"></div>
+      <button id="bRankBack" class="sec">Volver</button>
+    </div>
+  </div>
+
+  <!-- FIN DE PARTIDA -->
+  <div id="s-over" class="screen hidden">
+    <div class="panel">
+      <h1 id="oTitle"></h1>
+      <p id="oInfo" style="font-size:16px"></p>
+      <p id="oSave"></p>
+      <button id="bRetry">Reintentar</button>
+      <button id="bNext" class="warn">Siguiente mapa</button>
+      <button id="bOverMenu" class="sec">Menú</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="game.js"></script>
+</body>
+</html>
