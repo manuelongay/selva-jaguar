@@ -17,15 +17,15 @@ const EDGE_GRACE = 3;    // segundos que puedes estar pegado al borde izquierdo 
 // Para agregar un mapa nuevo basta con añadir otro objeto aquí.
 const MAPS = [
   { id: "selva", name: "Selva Esmeralda", desc: "Jabalíes y serpientes. Ideal para empezar.",
-    lengthM: 300, speed: 125, seed: 1101, density: 0.55, chain: 0, lake: [240, 290],
+    lengthM: 300, speed: 125, seed: 1101, density: 0.55, lake: [240, 290], small: [80, 108], lakes: { small: 0.45, mid: 0.55, chain: 0 }, groups: [0.62, 0.32, 0.06],
     enemies: { boar: 0.5, snake: 0.5, jaguar: 0 },
     sky: ["#7fd6a0", "#e8f7c8"], far: "#3f8f5a", near: "#2c6e45", ground: "#3a8a2c", dirt: "#5b3a1e", water: "#2aa3c9", vine: "#2f5d1f", leaf: "#2e8b3d", night: false },
   { id: "pantano", name: "Pantano Nocturno", desc: "Entra el jaguar. Lagos más anchos.",
-    lengthM: 400, speed: 135, seed: 2202, density: 0.65, chain: 0.25, lake: [250, 295],
+    lengthM: 400, speed: 135, seed: 2202, density: 0.65, lake: [250, 295], small: [88, 118], lakes: { small: 0.35, mid: 0.45, chain: 0.2 }, groups: [0.5, 0.35, 0.15],
     enemies: { boar: 0.3, snake: 0.3, jaguar: 0.4 },
     sky: ["#0d1f38", "#2c4a5e"], far: "#1c3b4a", near: "#16303a", ground: "#2d6a3f", dirt: "#2a1d12", water: "#1f6f7a", vine: "#6b8a3a", leaf: "#1f5a3a", night: true },
   { id: "canon", name: "Cañón del Atardecer", desc: "Rápido, con jaguares y lagos dobles.",
-    lengthM: 500, speed: 145, seed: 3303, density: 0.75, chain: 0.4, lake: [255, 300],
+    lengthM: 500, speed: 145, seed: 3303, density: 0.75, lake: [255, 300], small: [95, 128], lakes: { small: 0.3, mid: 0.4, chain: 0.3 }, groups: [0.4, 0.4, 0.2],
     enemies: { boar: 0.3, snake: 0.2, jaguar: 0.5 },
     sky: ["#f2924a", "#ffd98a"], far: "#b5563a", near: "#8a3f2c", ground: "#8a7a2e", dirt: "#4a2f18", water: "#3ba0b8", vine: "#6a5a1a", leaf: "#a88a2a", night: false },
 ];
@@ -58,27 +58,66 @@ function makeVine(ax, r) {
   return { ax, ay: 50, L: 180, phase: r() * 6.28, amp: 0.28 + r() * 0.1, w: 1.6 + r() * 0.4, used: false };
 }
 
+// Los animales se activan al acercarse al borde derecho de la pantalla y caminan hacia ti.
+// Calculamos dónde se cruzarán contigo para que siempre haya suelo antes del siguiente lago.
+const ACT = W + 60;               // distancia (desde la cámara) a la que un animal se activa
+const MEET = ACT - 200;           // el jugador va ~200 px dentro de la pantalla
+function travelOf(type, map) {    // cuánto camina un animal antes de cruzarse contigo
+  const v = ENEMY[type].v, b = map.speed * 1.15;
+  return (MEET * v) / (b + v);
+}
+
 function buildLevel(map) {
   const r = rng(map.seed);
   const rr = (a, b) => a + r() * (b - a);
   const lvl = { lakes: [], vines: [], enemies: [], goalX: 0 };
   const endTarget = map.lengthM * PX_M;
-  let x = 700;
-  while (x < endTarget - 600) {
-    const gl = rr(450, 650);
-    let n = r() < map.density ? 1 : 0;
-    if (n && gl > 580 && r() < 0.35) n = 2;
-    let ex = x + rr(200, 260);
-    for (let i = 0; i < n; i++) {
-      lvl.enemies.push({ x: ex, type: pickWeighted(map.enemies, r), active: false, anim: r() * 6, dead: false });
-      ex += rr(220, 280);
+  let x = 300, first = true;
+  // bolsa balanceada de tipos de lago (respeta las proporciones del mapa sin depender de la suerte)
+  let bag = [];
+  const nextKind = () => {
+    if (!bag.length) {
+      for (const k of Object.keys(map.lakes)) for (let i = 0; i < Math.round(map.lakes[k] * 10); i++) bag.push(k);
+      for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; }
     }
+    return bag.pop();
+  };
+  while (x < endTarget - 600) {
+    // ---- tramo de suelo (con o sin animales) ----
+    let gl;
+    if (first || r() >= map.density) {
+      gl = first ? 650 : rr(380, 560);
+    } else {
+      const type = pickWeighted(map.enemies, r), d = ENEMY[type];
+      const k = pickWeighted({ 1: map.groups[0], 2: map.groups[1], 3: map.groups[2] }, r) | 0;
+      // separaciones: "juntos" (se saltan los dos de una vez) o "separados" (cabe aterrizar en medio)
+      const reach = (map.speed * 1.15 + d.v) * 0.72;      // tramo máximo que se salta de un solo brinco
+      const offs = [0]; let run = d.w + 2;
+      for (let i = 1; i < k; i++) {
+        let gap = r() < 0.5 ? rr(40, 75) : rr(170, 260);
+        if (gap < 100) { if (run + gap + d.w + 2 > reach) gap = rr(170, 260); else run += gap + d.w + 2; }
+        if (gap >= 100) run = d.w + 2;
+        offs.push(offs[i - 1] + d.w + gap);
+      }
+      const span = offs[k - 1], travel = travelOf(type, map);
+      const lead = rr(280, 330), tail = rr(180, 240);
+      const xe = x + lead + travel;
+      for (let i = 0; i < k; i++)
+        lvl.enemies.push({ x: xe + offs[i], type, active: false, anim: r() * 6, dead: false });
+      gl = lead + travel + span + tail;
+    }
+    first = false;
     x += gl;
-    const chain = r() < map.chain;
-    const w = chain ? rr(470, 510) : rr(map.lake[0], map.lake[1]);
-    lvl.lakes.push({ x, w });
-    if (chain) { lvl.vines.push(makeVine(x + w * 0.27, r), makeVine(x + w * 0.72, r)); }
-    else lvl.vines.push(makeVine(x + w / 2, r));
+
+    // ---- lago: chico (se salta directo), mediano (liana) o doble (dos lianas) ----
+    const kind = nextKind();
+    let w;
+    if (kind === "small") w = rr(map.small[0], map.small[1]);
+    else if (kind === "chain") w = rr(470, 510);
+    else w = rr(map.lake[0], map.lake[1]);
+    lvl.lakes.push({ x, w, kind });
+    if (kind === "chain") lvl.vines.push(makeVine(x + w * 0.27, r), makeVine(x + w * 0.72, r));
+    else if (kind === "mid") lvl.vines.push(makeVine(x + w / 2, r));
     x += w;
   }
   lvl.goalX = x + 500;
@@ -162,7 +201,7 @@ function update(dt) {
   // enemigos
   for (const e of lvl.enemies) {
     if (e.dead) continue;
-    if (!e.active && e.x - g.cam < W + 150) e.active = true;
+    if (!e.active && e.x - g.cam < ACT) e.active = true;
     if (!e.active) continue;
     const d = ENEMY[e.type];
     e.x -= d.v * dt; e.anim += dt * (e.type === "snake" ? 5 : 11);
