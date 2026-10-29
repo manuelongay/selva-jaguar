@@ -1,4 +1,5 @@
-import * as Cloud from "./cloud.js";
+const VERSION = "v5";
+import * as Cloud from "./cloud.js?v=5";
 
 /* ===================== CONSTANTES ===================== */
 const W = 800, H = 400;
@@ -12,6 +13,7 @@ const GRAB = 56;         // radio para agarrar una liana (px)
 const JUMP_VX = 40;      // impulso extra hacia adelante al saltar (más alcance, ventana de despegue más amplia)
 const COYOTE = 0.1;      // segundos después de salir del suelo en que todavía puedes saltar
 const JUMP_BUF = 0.12;   // segundos que se recuerda un toque hecho un instante antes de poder saltar
+const GUIDE = true;       // muestra un aro verde en la liana cuando un salto ahora la alcanzaría
 const SPEEDS = [{ k: 0.75, n: "🐢 Lento" }, { k: 1, n: "Normal" }, { k: 1.25, n: "🐇 Rápido" }];
 const RELEASE_VX = 250;  // impulso hacia adelante al soltarse de la liana
 const RELEASE_VY = -420; // impulso hacia arriba al soltarse de la liana
@@ -149,12 +151,13 @@ function startGame(mapIdx, m) {
   curMap = mapIdx; mode = m;
   const map = MAPS[mapIdx];
   const lvl = buildLevel(map);
-  G = { map, lvl, t: 0, time: 0, cam: 0, edgeT: 0, buf: 0, mul: m === "adv" ? SPEEDS[speedIdx].k : 1, over: false, won: false, cause: "",
+  G = { map, lvl, t: 0, time: 0, cam: 0, edgeT: 0, buf: 0, go: false, hint: null, mul: m === "adv" ? SPEEDS[speedIdx].k : 1, over: false, won: false, cause: "",
         p: { x: 150, y: GROUND, vx: map.speed, vy: 0, state: "run", vine: null, th: 0, om: 0, Le: 0, anim: 0, coy: 0 } };
   G.cam = G.p.x - 200;
   pressed = false;
   showScreen(null);
-  $("hud").style.display = "flex"; $("pauseBtn").style.display = "block";
+  $("hud").style.display = "flex"; $("pauseBtn").style.display = "block"; $("goBtn").style.display = "block";
+  setGoUI();
   $("hMap").textContent = map.name + (G.mul !== 1 ? " · " + G.mul + "×" : "");
 }
 
@@ -163,26 +166,27 @@ function update(dt) {
   const g = G, p = g.p, lvl = g.lvl;
   g.time += dt; g.t += dt;
   const base = g.map.speed * (1 + Math.min(0.2, g.time / 300));
-  g.cam = Math.max(g.cam + base * dt, p.x - 200);
+  const target = g.go ? base : 0;   // velocidad a la que se quiere avanzar (0 = detenido)
+  g.cam = Math.max(g.cam + target * dt, p.x - 200);
 
   const press = pressed; pressed = false;
   if (press) g.buf = JUMP_BUF; else g.buf = Math.max(0, g.buf - dt);
 
   if (p.state === "run") {
-    p.vx = base; p.x += p.vx * dt; p.anim += dt * 9; p.coy = COYOTE;
+    p.vx = target; p.x += p.vx * dt; if (g.go) p.anim += dt * 9; p.coy = COYOTE;
     if (!onGround(p.x)) { p.state = "air"; p.vy = 0; }
-    else if (g.buf > 0) { p.vy = JUMP_V; p.vx = base + JUMP_VX; p.state = "air"; p.coy = 0; g.buf = 0; beep(520, .08); }
+    else if (g.buf > 0) { g.go = true; setGoUI(); p.vy = JUMP_V; p.vx = base + JUMP_VX; p.state = "air"; p.coy = 0; g.buf = 0; beep(520, .08); }
   } else if (p.state === "air") {
     // coyote: si acabas de salir del borde, todavía puedes saltar
     if (p.coy > 0) {
       p.coy -= dt;
       if (g.buf > 0 && p.vy >= 0 && p.y <= GROUND + 12) {
-        p.y = GROUND; p.vy = JUMP_V; p.vx = base + JUMP_VX; p.coy = 0; g.buf = 0; beep(520, .08);
+        g.go = true; setGoUI(); p.y = GROUND; p.vy = JUMP_V; p.vx = base + JUMP_VX; p.coy = 0; g.buf = 0; beep(520, .08);
       }
     }
     const prevY = p.y;
     p.vy += GRAV * dt; p.y += p.vy * dt;
-    p.vx += (base - p.vx) * Math.min(1, dt * 1.5);
+    p.vx += (target - p.vx) * Math.min(1, dt * 1.5);
     p.x += p.vx * dt;
     if (p.vy > 0 && prevY <= GROUND + 4 && p.y >= GROUND && onGround(p.x)) {
       p.y = GROUND; p.vy = 0; p.state = "run";
@@ -204,6 +208,8 @@ function update(dt) {
       p.state = "air"; p.vine = null; v.used = true; g.buf = 0; p.coy = 0; beep(380, .08);
     }
   }
+
+  g.hint = (p.state === "run" && GUIDE) ? predictGrab(g) : null;
 
   // borde izquierdo: 3 segundos de gracia antes de perder
   if (p.state !== "swing" && p.x < g.cam + 8) p.x = g.cam + 8;
@@ -233,6 +239,30 @@ function update(dt) {
   const m = Math.floor(Math.min(p.x, lvl.goalX) / PX_M);
   $("hDist").textContent = m + " m / " + Math.floor(lvl.goalX / PX_M) + " m";
   $("hScore").textContent = "⭐ " + (m * 10);
+}
+
+// ¿Si saltaras justo ahora, tu mano alcanzaría una liana? (misma física que update; devuelve la liana o null)
+function predictGrab(g) {
+  const p = g.p;
+  const base = g.map.speed * (1 + Math.min(0.2, g.time / 300));
+  const dt = 1 / 60;
+  let x = p.x, y = GROUND, vx = base + JUMP_VX, vy = JUMP_V, t = g.t + dt;
+  for (let i = 0; i < 110; i++) {
+    t += dt;
+    const prevY = y;
+    vy += GRAV * dt; y += vy * dt; vx += (base - vx) * Math.min(1, dt * 1.5); x += vx * dt;
+    if (vy > 0 && prevY <= GROUND + 4 && y >= GROUND && onGround(x)) return null;
+    if (y > GROUND + 45) return null;
+    for (const v of g.lvl.vines) {
+      if (v.used || Math.abs(v.ax - x) > 260) continue;
+      const th = idleTheta(v, t);
+      for (let k = 0.6; k <= 1.001; k += 0.1) {
+        const px = v.ax + v.L * k * Math.sin(th), py = v.ay + v.L * k * Math.cos(th);
+        if (Math.hypot(px - x, py - (y - HAND)) < GRAB) return v;
+      }
+    }
+  }
+  return null;
 }
 
 function tryGrab(g) {
@@ -267,7 +297,7 @@ async function finish(won) {
   const meters = Math.floor(Math.min(g.p.x, lvl.goalX) / PX_M);
   const par = lvl.goalX / g.map.speed;
   const score = meters * 10 + (won ? 500 + Math.max(0, Math.round((par - g.time) * 20)) : 0);
-  $("hud").style.display = "none"; $("pauseBtn").style.display = "none";
+  $("hud").style.display = "none"; $("pauseBtn").style.display = "none"; $("goBtn").style.display = "none";
   $("oTitle").textContent = won ? "🏆 ¡Llegaste al templo!" : g.cause;
   $("oInfo").textContent = `${g.map.name} · ${meters} m · ${g.time.toFixed(1)} s · ${score} puntos`;
   $("oSave").textContent = "";
@@ -371,6 +401,12 @@ function draw() {
     ell(x, v.ay - 6, 22, 12, map.leaf);
     line(x, v.ay, ex, ey, map.vine, 4);
     circle(ex, ey, 4, v.used ? "#555" : "#c8e86a");
+    if (g.hint === v) {
+      ctx.strokeStyle = "#7dff9b"; ctx.lineWidth = 3; ctx.beginPath();
+      ctx.arc(ex, ey, 11 + 2 * Math.sin(g.t * 9), 0, 7); ctx.stroke();
+      ctx.fillStyle = "#7dff9b"; ctx.font = "bold 13px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText("¡Salta ya!", ex, ey - 18);
+    }
   }
   // enemigos
   for (const e of lvl.enemies) {
@@ -381,6 +417,11 @@ function draw() {
     ctx.restore();
   }
   drawPlayer(g.p, cam);
+  if (!g.go && g.p.state === "run" && g.time < 12) {
+    ctx.fillStyle = "rgba(0,0,0,.45)"; ctx.fillRect(W / 2 - 190, 20, 380, 30);
+    ctx.fillStyle = "#fff"; ctx.font = "bold 15px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText("▶ Avanzar para caminar · toca la pantalla para saltar", W / 2, 41);
+  }
   // aviso de borde izquierdo
   if (g.edgeT > 0.05 && !g.over) {
     const a = 0.25 + 0.35 * (g.edgeT / EDGE_GRACE);
@@ -433,7 +474,9 @@ function drawPlayer(p, cam) {
   ctx.save(); ctx.translate(x, y); ctx.lineCap = "round";
   const skin = "#f2c08a", shirt = "#3b6fb5", pants = "#6b4a2a";
   let l1, l2, a1x, a1y, a2x, a2y;
-  if (p.state === "run") {
+  if (p.state === "run" && !G.go) {
+    l1 = 0.08; l2 = -0.08; a1x = -4; a1y = -14; a2x = 4; a2y = -14;
+  } else if (p.state === "run") {
     const s = Math.sin(p.anim);
     l1 = s * 0.9; l2 = -s * 0.9;
     a1x = -s * 10; a1y = -17; a2x = s * 10; a2y = -17;
@@ -456,10 +499,17 @@ function drawPlayer(p, cam) {
 const SCREENS = ["s-auth", "s-menu", "s-maps", "s-rank", "s-over"];
 function showScreen(id) { for (const s of SCREENS) $(s).classList.toggle("hidden", s !== id); }
 
+function setGoUI() {
+  const b = $("goBtn"); const on = !!(G && G.go);
+  b.textContent = on ? "⏸ Detener" : "▶ Avanzar";
+  b.className = on ? "sec" : "";
+}
+function toggleGo() { if (G && !G.over) { G.go = !G.go; setGoUI(); } }
+
 function toMenu() {
   G = null; ctx.clearRect(0, 0, W, H);
-  $("hud").style.display = "none"; $("pauseBtn").style.display = "none";
-  $("mHello").textContent = "Hola, " + user.name;
+  $("hud").style.display = "none"; $("pauseBtn").style.display = "none"; $("goBtn").style.display = "none";
+  $("mHello").textContent = "Hola, " + user.name + " · " + VERSION;
   $("bComp").disabled = !!user.guest;
   $("bComp").textContent = user.guest ? "🏆 Competencia (requiere cuenta)" : "🏆 Competencia";
   showScreen("s-menu");
@@ -539,8 +589,10 @@ $("pauseBtn").onclick = toMenu;
 
 // control de un solo botón: toque en pantalla / espacio / flecha arriba
 cv.addEventListener("pointerdown", (e) => { e.preventDefault(); if (G && !G.over) pressed = true; });
+$("goBtn").addEventListener("pointerdown", (e) => { e.preventDefault(); toggleGo(); });
 window.addEventListener("keydown", (e) => {
   if (e.code === "Space" || e.code === "ArrowUp") { e.preventDefault(); if (G && !G.over) pressed = true; }
+  if (e.code === "ArrowRight" || e.code === "KeyD") { e.preventDefault(); toggleGo(); }
 });
 
 function fit() {
