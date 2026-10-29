@@ -1,21 +1,23 @@
-const VERSION = "v5";
-import * as Cloud from "./cloud.js?v=5";
+const VERSION = "v6";
+import * as Cloud from "./cloud.js?v=6";
 
 /* ===================== CONSTANTES ===================== */
 const W = 800, H = 400;
 const GROUND = 300;      // y del suelo (pies del jugador)
-const GRAV = 1100;       // gravedad del salto (más baja = salto más flotado)
-const JUMP_V = -600;     // impulso de salto
+const GRAV = 1250;       // gravedad del salto (más alta = salto más corto y bajo)
+const JUMP_V = -520;     // impulso de salto (altura ~108 px, ~0.83 s en el aire)
 const SWING_G = 1800;    // "gravedad" del péndulo de la liana
 const HAND = 50;         // distancia de los pies a las manos
 const PX_M = 50;         // píxeles por metro
 const GRAB = 56;         // radio para agarrar una liana (px)
-const JUMP_VX = 40;      // impulso extra hacia adelante al saltar (más alcance, ventana de despegue más amplia)
+const JUMP_VX = 110;     // impulso extra hacia adelante al saltar (alcance para lagos y lianas)
 const COYOTE = 0.1;      // segundos después de salir del suelo en que todavía puedes saltar
 const JUMP_BUF = 0.12;   // segundos que se recuerda un toque hecho un instante antes de poder saltar
 const GUIDE = true;       // muestra un aro verde en la liana cuando un salto ahora la alcanzaría
 const SPEEDS = [{ k: 0.75, n: "🐢 Lento" }, { k: 1, n: "Normal" }, { k: 1.25, n: "🐇 Rápido" }];
-const RELEASE_VX = 250;  // impulso hacia adelante al soltarse de la liana
+const RELEASE_VX = 280;  // impulso fijo hacia adelante al soltarse de la liana
+const RELEASE_CAP_X = 40; // lo máximo que el péndulo puede sumar a ese impulso (así el salto siempre cae a una distancia parecida)
+const RELEASE_CAP_Y = 60; // ídem hacia arriba/abajo
 const RELEASE_VY = -420; // impulso hacia arriba al soltarse de la liana
 const EDGE_GRACE = 3;    // segundos que puedes estar pegado al borde izquierdo antes de perder
 
@@ -73,6 +75,18 @@ function travelOf(type, map) {    // cuánto camina un animal antes de cruzarse 
   return (MEET * v) / (b + v);
 }
 
+// Física del salto, para calcular huecos que sí se puedan pasar.
+const JUMP_T = (2 * -JUMP_V) / GRAV;                              // segundos en el aire
+const JUMP_DX = (JUMP_VX * (1 - Math.exp(-1.5 * JUMP_T))) / 1.5;  // avance extra que da el impulso del salto
+function gapRules(type, map) {
+  const d = ENEMY[type], rel = map.speed * 1.15 + d.v, we = d.w + 2;
+  const reachEff = JUMP_T * rel + JUMP_DX;   // distancia relativa que recorres respecto al animal durante un salto
+  return {
+    cap: 0.8 * (reachEff - 40),              // tramo máximo que se libra con un solo salto
+    wideMin: reachEff - we + 0.15 * rel + 10, // hueco mínimo para aterrizar en medio y tener tiempo de volver a saltar
+  };
+}
+
 function buildLevel(map) {
   const r = rng(map.seed);
   const rr = (a, b) => a + r() * (b - a);
@@ -96,13 +110,15 @@ function buildLevel(map) {
     } else {
       const type = pickWeighted(map.enemies, r), d = ENEMY[type];
       const k = pickWeighted({ 1: map.groups[0], 2: map.groups[1], 3: map.groups[2] }, r) | 0;
-      // separaciones: "juntos" (se saltan los dos de una vez) o "separados" (cabe aterrizar en medio)
-      const reach = (map.speed * 1.15 + d.v) * 0.72;      // tramo máximo que se salta de un solo brinco
+      // separaciones: "juntos" (un solo salto libra a los dos) o "separados" (aterrizas en medio y vuelves a saltar).
+      // Los huecos intermedios no se generan: ahí no hay forma natural de pasar.
+      const rules = gapRules(type, map);
       const offs = [0]; let run = d.w + 2;
       for (let i = 1; i < k; i++) {
-        let gap = r() < 0.5 ? rr(40, 75) : rr(170, 260);
-        if (gap < 100) { if (run + gap + d.w + 2 > reach) gap = rr(170, 260); else run += gap + d.w + 2; }
-        if (gap >= 100) run = d.w + 2;
+        const tightMax = rules.cap - run - (d.w + 2);
+        let gap;
+        if (tightMax >= 28 && r() < 0.5) { gap = rr(24, tightMax); run += gap + d.w + 2; }
+        else { gap = rr(rules.wideMin, rules.wideMin + 90); run = d.w + 2; }
         offs.push(offs[i - 1] + d.w + gap);
       }
       const span = offs[k - 1], travel = travelOf(type, map);
@@ -203,8 +219,8 @@ function update(dt) {
     p.x = v.ax + p.Le * Math.sin(p.th);
     p.y = v.ay + p.Le * Math.cos(p.th) + HAND;
     if (press) {
-      p.vx = Math.max(0, p.Le * p.om * Math.cos(p.th) * 1.05) + RELEASE_VX;
-      p.vy = -p.Le * p.om * Math.sin(p.th) + RELEASE_VY;
+      p.vx = Math.min(RELEASE_CAP_X, Math.max(0, p.Le * p.om * Math.cos(p.th) * 1.05)) + RELEASE_VX;
+      p.vy = Math.max(-RELEASE_CAP_Y, Math.min(RELEASE_CAP_Y, -p.Le * p.om * Math.sin(p.th))) + RELEASE_VY;
       p.state = "air"; p.vine = null; v.used = true; g.buf = 0; p.coy = 0; beep(380, .08);
     }
   }
