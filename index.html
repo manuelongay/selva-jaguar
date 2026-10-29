@@ -28,13 +28,15 @@
   td,th{padding:5px 4px;border-bottom:1px solid #2f6a44;text-align:left}
   td:last-child,th:last-child{text-align:right}
   #hud{position:fixed;left:0;right:0;top:0;display:none;justify-content:space-between;padding:6px 12px;font-weight:700;font-size:15px;text-shadow:0 1px 3px #000;pointer-events:none}
-  #pauseBtn{position:fixed;right:8px;bottom:8px;display:none;pointer-events:auto;padding:6px 12px;font-size:13px;opacity:.7}
+  #pauseBtn{position:fixed;left:50%;top:34px;transform:translateX(-50%);display:none;pointer-events:auto;padding:5px 14px;font-size:12px;opacity:.65}
+  #goBtn{position:fixed;left:max(12px,env(safe-area-inset-left));bottom:12px;display:none;pointer-events:auto;min-width:150px;padding:16px 18px;font-size:18px;box-shadow:0 2px 8px rgba(0,0,0,.5);z-index:5}
 </style>
 </head>
 <body>
 <canvas id="c" width="800" height="400"></canvas>
 <div id="hud"><span id="hMap"></span><span id="hDist"></span><span id="hScore"></span></div>
-<button id="pauseBtn" class="sec">Menú</button>
+<button id="pauseBtn" class="sec">☰ Menú</button>
+<button id="goBtn">▶ Avanzar</button>
 
 <div id="ui">
   <!-- ACCESO -->
@@ -61,7 +63,7 @@
       <button id="bComp" class="warn">🏆 Competencia</button>
       <button id="bRank" class="sec">📊 Ranking</button>
       <button id="bOut" class="sec">Salir de la cuenta</button>
-      <p>Toca la pantalla para saltar. Si tocas una liana te agarras; toca otra vez para soltarte.</p>
+      <p>▶ Avanzar camina y ⏸ Detener te frena para esperar a la liana. Toca la pantalla para saltar (también empieza a caminar). En la liana, toca otra vez para soltarte.</p>
     </div>
   </div>
 
@@ -100,6 +102,6 @@
   </div>
 </div>
 
-<script type="module" src="game.js"></script>
+<script type="module" src="game.js?v=5"></script>
 </body>
 </html>
