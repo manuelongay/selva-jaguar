@@ -8,7 +8,11 @@ const JUMP_V = -600;     // impulso de salto
 const SWING_G = 1800;    // "gravedad" del péndulo de la liana
 const HAND = 50;         // distancia de los pies a las manos
 const PX_M = 50;         // píxeles por metro
-const GRAB = 44;         // radio para agarrar una liana (px)
+const GRAB = 56;         // radio para agarrar una liana (px)
+const JUMP_VX = 40;      // impulso extra hacia adelante al saltar (más alcance, ventana de despegue más amplia)
+const COYOTE = 0.1;      // segundos después de salir del suelo en que todavía puedes saltar
+const JUMP_BUF = 0.12;   // segundos que se recuerda un toque hecho un instante antes de poder saltar
+const SPEEDS = [{ k: 0.75, n: "🐢 Lento" }, { k: 1, n: "Normal" }, { k: 1.25, n: "🐇 Rápido" }];
 const RELEASE_VX = 250;  // impulso hacia adelante al soltarse de la liana
 const RELEASE_VY = -420; // impulso hacia arriba al soltarse de la liana
 const EDGE_GRACE = 3;    // segundos que puedes estar pegado al borde izquierdo antes de perder
@@ -55,7 +59,7 @@ function pickWeighted(w, r) {
 }
 
 function makeVine(ax, r) {
-  return { ax, ay: 50, L: 180, phase: r() * 6.28, amp: 0.28 + r() * 0.1, w: 1.6 + r() * 0.4, used: false };
+  return { ax, ay: 50, L: 180, phase: r() * 6.28, amp: 0.12 + r() * 0.06, w: 1.6 + r() * 0.4, used: false };
 }
 
 // Los animales se activan al acercarse al borde derecho de la pantalla y caminan hacia ti.
@@ -130,6 +134,8 @@ const cv = $("c"), ctx = cv.getContext("2d");
 let G = null;                 // partida actual
 let pressed = false;
 let user = null, prog = { unlocked: 1, best: {} }, mode = "adv", curMap = 0;
+let speedIdx = 1;
+try { const v = parseInt(localStorage.getItem("sj_speed")); if (v >= 0 && v < SPEEDS.length) speedIdx = v; } catch {}
 
 function lakeAt(x, margin = 4) {
   if (!G) return null;
@@ -143,13 +149,13 @@ function startGame(mapIdx, m) {
   curMap = mapIdx; mode = m;
   const map = MAPS[mapIdx];
   const lvl = buildLevel(map);
-  G = { map, lvl, t: 0, time: 0, cam: 0, edgeT: 0, over: false, won: false, cause: "",
-        p: { x: 150, y: GROUND, vx: map.speed, vy: 0, state: "run", vine: null, th: 0, om: 0, Le: 0, anim: 0 } };
+  G = { map, lvl, t: 0, time: 0, cam: 0, edgeT: 0, buf: 0, mul: m === "adv" ? SPEEDS[speedIdx].k : 1, over: false, won: false, cause: "",
+        p: { x: 150, y: GROUND, vx: map.speed, vy: 0, state: "run", vine: null, th: 0, om: 0, Le: 0, anim: 0, coy: 0 } };
   G.cam = G.p.x - 200;
   pressed = false;
   showScreen(null);
   $("hud").style.display = "flex"; $("pauseBtn").style.display = "block";
-  $("hMap").textContent = map.name;
+  $("hMap").textContent = map.name + (G.mul !== 1 ? " · " + G.mul + "×" : "");
 }
 
 /* ===================== FÍSICA / REGLAS ===================== */
@@ -160,12 +166,20 @@ function update(dt) {
   g.cam = Math.max(g.cam + base * dt, p.x - 200);
 
   const press = pressed; pressed = false;
+  if (press) g.buf = JUMP_BUF; else g.buf = Math.max(0, g.buf - dt);
 
   if (p.state === "run") {
-    p.vx = base; p.x += p.vx * dt; p.anim += dt * 9;
+    p.vx = base; p.x += p.vx * dt; p.anim += dt * 9; p.coy = COYOTE;
     if (!onGround(p.x)) { p.state = "air"; p.vy = 0; }
-    else if (press) { p.vy = JUMP_V; p.state = "air"; beep(520, .08); }
+    else if (g.buf > 0) { p.vy = JUMP_V; p.vx = base + JUMP_VX; p.state = "air"; p.coy = 0; g.buf = 0; beep(520, .08); }
   } else if (p.state === "air") {
+    // coyote: si acabas de salir del borde, todavía puedes saltar
+    if (p.coy > 0) {
+      p.coy -= dt;
+      if (g.buf > 0 && p.vy >= 0 && p.y <= GROUND + 12) {
+        p.y = GROUND; p.vy = JUMP_V; p.vx = base + JUMP_VX; p.coy = 0; g.buf = 0; beep(520, .08);
+      }
+    }
     const prevY = p.y;
     p.vy += GRAV * dt; p.y += p.vy * dt;
     p.vx += (base - p.vx) * Math.min(1, dt * 1.5);
@@ -187,7 +201,7 @@ function update(dt) {
     if (press) {
       p.vx = Math.max(0, p.Le * p.om * Math.cos(p.th) * 1.05) + RELEASE_VX;
       p.vy = -p.Le * p.om * Math.sin(p.th) + RELEASE_VY;
-      p.state = "air"; p.vine = null; v.used = true; beep(380, .08);
+      p.state = "air"; p.vine = null; v.used = true; g.buf = 0; p.coy = 0; beep(380, .08);
     }
   }
 
@@ -455,6 +469,7 @@ function openMaps(m) {
   mode = m;
   $("pTitle").textContent = m === "adv" ? "Aventura" : "Competencia";
   $("pSub").textContent = m === "adv" ? "Completa un mapa para desbloquear el siguiente." : "Todos juegan la misma selva. Gana la mayor puntuación.";
+  renderSpeed(m);
   const box = $("mapList"); box.innerHTML = "";
   MAPS.forEach((mp, i) => {
     const locked = m === "adv" && i >= prog.unlocked;
@@ -467,6 +482,18 @@ function openMaps(m) {
     box.appendChild(b);
   });
   showScreen("s-maps");
+}
+
+function renderSpeed(m) {
+  const row = $("speedRow"); row.innerHTML = "";
+  $("speedNote").textContent = m === "adv" ? "Cambia el ritmo del juego (lagos y animales se ajustan igual)." : "En competencia la velocidad es la misma para todos (Normal).";
+  SPEEDS.forEach((sp, i) => {
+    const b = document.createElement("button");
+    b.textContent = sp.n; b.disabled = m !== "adv";
+    b.className = (m === "adv" ? i === speedIdx : i === 1) ? "" : "sec";
+    b.onclick = () => { speedIdx = i; try { localStorage.setItem("sj_speed", String(i)); } catch {} renderSpeed(m); };
+    row.appendChild(b);
+  });
 }
 
 async function openRank(idx = 0) {
@@ -525,7 +552,7 @@ addEventListener("resize", fit); fit();
 let last = 0;
 function frame(ts) {
   const dt = Math.min(0.033, (ts - last) / 1000 || 0); last = ts;
-  if (G) { if (!G.over) update(dt); if (G) draw(); }
+  if (G) { if (!G.over) update(dt * G.mul); if (G) draw(); }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
